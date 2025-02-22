@@ -1,6 +1,5 @@
 -- URL Webhook Discord
-local webhook_url = "https://discord.com/api/webhooks/1324996384369414155/LBWNNFQc6yOl4c3kEO0q1o_MEOsaid28teEYDhtTEekGGHZXv1nuj9nWfy1Vxl2TXIYa"
-
+local webhook_url = "https://discord.com/api/webhooks/1341378459670286363/4kurzsVWmBXREUfMkJKMsw9MJ8vVYvp68lghQPQHPEJ3mb_ikrvD2ZLRGf7V1CVshkEt"
 -- Key yang benar
 local correctKey = "LOGIN-fREeZeTRadEhUB.id-bGrFDSeRiHUGfavHSK"
 local linkUrl = "https://link-target.net/1273087/freezetradehub"
